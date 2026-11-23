@@ -167,6 +167,54 @@ class TestDedupAndInterleaving(StorageTestBase):
             self.assertTrue(all(b["status"] == "committed" for b in logs))
 
 
+class TestDenseCompletenessByCounting(StorageTestBase):
+    """清单存法下合并判定的边界：本批是否填满缺口区域（不展开笛卡尔积）。"""
+
+    def _start_dense(self, conn):
+        storage.merge_and_store(conn, "E1", [("P1", "zh"), ("P1", "en"), ("P2", "zh"), ("P2", "en")])
+        self.assertEqual(storage.get_exhibit(conn, "E1")["storage_mode"], "dense")
+
+    def test_new_plate_with_all_languages_stays_dense(self):
+        with self.conn() as conn:
+            self._start_dense(conn)
+            r = storage.merge_and_store(conn, "E1", [("P3", "zh"), ("P3", "en")])
+            self.assertEqual((r.storage_mode, r.switched_from), ("dense", None))
+            self.assertEqual((r.new_pairs, r.total_pairs), (2, 6))
+            counts = self.table_counts(conn, "E1")
+            self.assertEqual((counts["dense_plates"], counts["dense_langs"], counts["sparse"]), (3, 2, 0))
+
+    def test_new_language_for_all_plates_stays_dense(self):
+        with self.conn() as conn:
+            self._start_dense(conn)
+            r = storage.merge_and_store(conn, "E1", [("P1", "fr"), ("P2", "fr")])
+            self.assertEqual((r.storage_mode, r.new_pairs, r.total_pairs), ("dense", 2, 6))
+            counts = self.table_counts(conn, "E1")
+            self.assertEqual((counts["dense_plates"], counts["dense_langs"], counts["sparse"]), (2, 3, 0))
+
+    def test_new_plate_and_language_with_full_cross_cover_stays_dense(self):
+        with self.conn() as conn:
+            self._start_dense(conn)
+            # 新图版 P3 + 新语种 fr：需覆盖 旧图版×fr 与 P3×全部语种
+            r = storage.merge_and_store(
+                conn, "E1", [("P1", "fr"), ("P2", "fr"), ("P3", "zh"), ("P3", "en"), ("P3", "fr")]
+            )
+            self.assertEqual((r.storage_mode, r.new_pairs, r.total_pairs), ("dense", 5, 9))
+            self.assertTrue(storage.get_exhibit(conn, "E1")["is_complete"])
+
+    def test_new_plate_and_language_missing_one_cross_goes_sparse(self):
+        with self.conn() as conn:
+            self._start_dense(conn)
+            # 缺 (P3, fr) 这一对 -> 清单出现缺项，改配对存法
+            r = storage.merge_and_store(
+                conn, "E1", [("P1", "fr"), ("P2", "fr"), ("P3", "zh"), ("P3", "en")]
+            )
+            self.assertEqual((r.storage_mode, r.switched_from), ("sparse", "dense"))
+            self.assertEqual((r.new_pairs, r.total_pairs), (4, 8))
+            detail = storage.get_exhibit(conn, "E1")
+            self.assertEqual({tuple(x) for x in detail["missing_pairs"]}, {("P3", "fr")})
+            self.assertEqual(detail["by_plate"]["P2"], ["en", "fr", "zh"])  # 旧搭配保留
+
+
 class TestConcurrentAppends(StorageTestBase):
     def test_concurrent_same_exhibit_all_batches_land(self):
         """同一展品并发补录：8 个线程各加不同配对，合起来恰为完整笛卡尔积。"""

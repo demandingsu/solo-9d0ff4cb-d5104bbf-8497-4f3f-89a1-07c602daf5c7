@@ -18,12 +18,19 @@
       核对结果：图版与语种构成完整笛卡尔积，仅存单去重的图版、语种两份清单。
     {% endif %}
   </p>
+  {% if data.storage_mode == 'dense' %}
+  <h2>图版清单（{{ data.plates|length }} 个，任意图版可配下方任意语种）</h2>
+  <p class="muted" style="word-break:break-all">{{ data.plates | join('、') }}</p>
+  <h2>语种清单（{{ data.languages|length }} 种）</h2>
+  <p class="muted" style="word-break:break-all">{{ data.languages | join('、') }}</p>
+  <p class="muted">清单存法不逐条展开 {{ data.pair_count }} 种搭配；提交后的本批回执见下方「批次记录」首行。</p>
+  {% else %}
   <table>
     <thead>
       <tr><th>图版号</th><th>可印语种</th></tr>
     </thead>
     <tbody>
-      {% for plate in data.plates %}
+      {% for plate in data.plates[:500] %}
       <tr>
         <td><b>{{ plate }}</b></td>
         <td>{{ data.by_plate[plate] | join('、') }}</td>
@@ -31,6 +38,11 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if data.plates|length > 500 %}
+  <p class="muted">图版较多，仅展开前 500 个（共 {{ data.plates|length }} 个图版、
+    {{ data.pair_count }} 种搭配）；本批回执见下方「批次记录」首行，完整配对可经 JSON API 查询。</p>
+  {% endif %}
+  {% endif %}
 </div>
 
 <div class="card">
@@ -47,20 +59,23 @@
 
 {% if data.missing_pairs %}
 <div class="card">
-  <h2>缺项明细（仅依据已登记数据核对）</h2>
+  <h2>缺项明细（仅依据已登记数据核对，共 {{ data.missing_pairs|length }} 项）</h2>
   <table>
     <thead><tr><th>图版号</th><th>缺失语种</th></tr></thead>
     <tbody>
-      {% for plate, lang in data.missing_pairs %}
+      {% for plate, lang in data.missing_pairs[:500] %}
       <tr><td>{{ plate }}</td><td>{{ lang }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  {% if data.missing_pairs|length > 500 %}
+  <p class="muted">缺项较多，仅显示前 500 条（共 {{ data.missing_pairs|length }} 条）。</p>
+  {% endif %}
 </div>
 {% endif %}
 
 <div class="card">
-  <h2>批次记录</h2>
+  <h2>批次记录（最新一批在首行）</h2>
   <table>
     <thead>
       <tr><th>#</th><th>时间 (UTC)</th><th>文件原始行数</th><th>去重后</th><th>新增</th><th>累计搭配</th><th>存法</th><th>状态</th><th>备注</th></tr>

@@ -14,9 +14,17 @@
   - **配对存法（sparse）**：存在缺项时，只存实际的 `(图版, 语种)` 配对。
 - 存法可随时**互换**：合并后重新判定，单事务清空旧存法数据并重写新存法数据，
   已登记的可印搭配集合不丢失。
+- **合并与判定不在内存展开笛卡尔积**：清单存法只读两份清单，用计数判定
+  （净增配对数是否填满「旧图版 × 新语种」与「新图版 × 全部语种」两块）；
+  切到配对存法时旧笛卡尔积由 SQL 侧 `INSERT ... SELECT` 一次写入。
+  进程额外内存随原图版数、原语种数与本批行数之和线性增长，
+  大清单（如 2500 图版 × 400 语种）在 96 MiB 地址空间内可正常补录。
 - **核对搭配是否齐全只用已登记数据**：详情页与 API 基于库内数据给出
   `is_complete` 与缺项明细 `missing_pairs`。
 - 网页按**展品 → 图版**列出可印语种，并标注当前存法、批次历史与缺项。
+  清单存法页面直接展示图版、语种两份清单，不逐条展开整份搭配；
+  配对存法图版过多时页面仅展开前 500 个图版（缺项明细最多显示 500 条），
+  完整数据可经 JSON API 查询；提交后的本批回执见「批次记录」首行。
 - **整理（补录）期间查询仍返回已提交的完整资料**：写事务只锁写，查询不被阻塞
   （WAL + `BEGIN IMMEDIATE` 短事务），其他展品可照常补录。
 - **同一展品的并发补录全部纳入结果**：每个请求独立连接，写事务
@@ -34,7 +42,7 @@ app/
   web.py       # Flask 路由（网页 + JSON API）
   wsgi.py      # gunicorn 入口
   templates/   # 列表页、详情页
-tests/         # 存储层 11 项 + HTTP 端到端 6 项（标准库 unittest）
+tests/         # 存储层 15 项 + 大清单 96 MiB 回归 1 项 + HTTP 端到端 6 项（标准库 unittest）
 docker/entrypoint.sh  # 启动前幂等建表
 Dockerfile, docker-compose.yml, requirements.txt
 examples/      # 完整/缺项两份示例 CSV
@@ -74,6 +82,9 @@ gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 app.wsgi:app
 ```bash
 # 存储层：存法选择、互换、交错补录、并发不丢更新、失败回滚
 python -m unittest discover -s tests -v
+
+# 大清单回归：2500 图版 × 400 语种清单存法，96 MiB 地址空间内补录/切换/查询
+python -m unittest tests.test_large_merge -v
 
 # HTTP 端到端（真实 gunicorn 2×4，含并发补录与交错展品）
 GUNICORN_BIN=$(which gunicorn) python -m unittest tests.test_http -v
